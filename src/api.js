@@ -54,40 +54,52 @@
 
     var nodeJSRequest = (function() {
         if(typeof require == 'function' && require('http')) {
-            var http = require('http'),
+            var requestsCache = {},
+                http = require('http'),
                 https = require('https'),
                 url = require('url'),
                 querystring = require('querystring');
 
             return function(requestUrl, callback) {
+                if(requestsCache[requestUrl]) {
+                    callback(requestsCache[requestUrl]);
+                } else {
 
-                var parsed = url.parse(requestUrl),
-                    h = parsed.protocol == 'https:' ? https : http,
-                    options = {
-                        hostname: parsed.hostname,
-                        path: parsed.path,
-                        query: parsed.query,
-                        headers: { 'Accept': 'application/json' }
-                    };
+                    var parsed = url.parse(requestUrl),
+                        h = parsed.protocol == 'https:' ? https : http,
+                        options = {
+                            hostname: parsed.hostname,
+                            path: parsed.path,
+                            query: parsed.query,
+                            headers: { 'Accept': 'application/json' }
+                        };
 
-                h.get(options, function(response) {
-                    if(response.statusCode && response.statusCode == 200) {
-                        var jsonStr = '';
+                    h.get(options, function(response) {
+                        if(response.statusCode && response.statusCode == 200) {
+                            var jsonStr = '';
 
-                        response.setEncoding('utf8');
-                        response.on('data', function (chunk) {
-                            jsonStr += chunk;
-                        });
+                            response.setEncoding('utf8');
+                            response.on('data', function (chunk) {
+                                jsonStr += chunk;
+                            });
 
-                        response.on('end', function () {
-                          var json = JSON.parse(jsonStr);
+                            response.on('end', function () {
+                              var cacheControl = response.headers['cache-control'],
+                                  maxAge = cacheControl && /max-age=(\d+)/.test(cacheControl) ? parseInt(/max-age=(\d+)/.exec(cacheControl)[1]) : undefined,
+                                  json = JSON.parse(jsonStr);
 
-                          callback(json);
-                        });
-                    } else {
-                        throw new Error("Unexpected status code [" + response.statusCode + "]")
-                    }
-                });
+                              if(maxAge) {
+                                  requestsCache[requestUrl] = json;
+                              }
+
+                              callback(json);
+                            });
+                        } else {
+                            throw new Error("Unexpected status code [" + response.statusCode + "]")
+                        }
+                    });
+
+                }
 
             };
         }
